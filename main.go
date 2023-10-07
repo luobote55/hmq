@@ -4,8 +4,8 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/fhmq/hmq/broker"
-	"github.com/fhmq/hmq/logger"
+	"github.com/luobote55/hmq/broker"
+	"github.com/luobote55/hmq/logger"
 	"go.uber.org/zap"
 )
 

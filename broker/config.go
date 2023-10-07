@@ -9,10 +9,10 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/fhmq/hmq/logger"
-	"github.com/fhmq/hmq/plugins/auth"
-	"github.com/fhmq/hmq/plugins/bridge"
 	jsoniter "github.com/json-iterator/go"
+	"github.com/luobote55/hmq/logger"
+	"github.com/luobote55/hmq/plugins/auth"
+	"github.com/luobote55/hmq/plugins/bridge"
 	"go.uber.org/zap"
 )
 
