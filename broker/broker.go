@@ -2,18 +2,17 @@ package broker
 
 import (
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/fhmq/hmq/broker/lib/sessions"
-	"github.com/fhmq/hmq/broker/lib/topics"
-	"github.com/fhmq/hmq/plugins/auth"
-	"github.com/fhmq/hmq/plugins/bridge"
-	"github.com/fhmq/hmq/pool"
+	"github.com/luobote55/hmq/broker/lib/sessions"
+	"github.com/luobote55/hmq/broker/lib/topics"
+	"github.com/luobote55/hmq/plugins/auth"
+	"github.com/luobote55/hmq/plugins/bridge"
+	"github.com/luobote55/hmq/pool"
 
 	"github.com/eclipse/paho.mqtt.golang/packets"
 	"go.uber.org/zap"
@@ -186,7 +185,7 @@ func (b *Broker) StartWebsocketListening() {
 	path := b.config.WsPath
 	hp := ":" + b.config.WsPort
 	log.Info("Start Websocket Listener on:", zap.String("hp", hp), zap.String("path", path))
-	ws := &websocket.Server{Handler: websocket.Handler(b.wsHandler)}
+	ws := &websocket.Server{Handler: websocket.Handler(b.WsHandler)}
 	mux := http.NewServeMux()
 	mux.Handle(path, ws)
 	var err error
@@ -201,13 +200,10 @@ func (b *Broker) StartWebsocketListening() {
 	}
 }
 
-func (b *Broker) wsHandler(ws *websocket.Conn) {
+func (b *Broker) WsHandler(ws *websocket.Conn) {
 	// io.Copy(ws, ws)
 	ws.PayloadType = websocket.BinaryFrame
-	err:=b.handleConnection(CLIENT, ws)
-	if err!=nil{
-		ws.Close()
-	}
+	b.handleConnection(CLIENT, ws)
 }
 
 func (b *Broker) StartClientListening(Tls bool) {
@@ -258,12 +254,7 @@ func (b *Broker) StartClientListening(Tls bool) {
 		}
 
 		tmpDelay = ACCEPT_MIN_SLEEP
-		go func(){
-			err :=b.handleConnection(CLIENT, conn)
-			if err!=nil{
-				conn.Close()
-			}
-		}()
+		go b.handleConnection(CLIENT, conn)
 	}
 }
 
@@ -300,12 +291,7 @@ func (b *Broker) StartClusterListening() {
 		}
 		tmpDelay = ACCEPT_MIN_SLEEP
 
-		go func(){
-			err :=b.handleConnection(ROUTER, conn)
-			if err!=nil{
-				conn.Close()
-			}
-		}()
+		go b.handleConnection(ROUTER, conn)
 	}
 }
 
@@ -321,18 +307,22 @@ func (b *Broker) DisConnClientByClientId(clientId string) {
 	conn.Close()
 }
 
-func (b *Broker) handleConnection(typ int, conn net.Conn) error{
+func (b *Broker) handleConnection(typ int, conn net.Conn) {
 	//process connect packet
 	packet, err := packets.ReadPacket(conn)
 	if err != nil {
-		return errors.New(fmt.Sprintln("read connect packet error:%v",err))
+		log.Error("read connect packet error", zap.Error(err))
+		conn.Close()
+		return
 	}
 	if packet == nil {
-		return errors.New("received nil packet")
+		log.Error("received nil packet")
+		return
 	}
 	msg, ok := packet.(*packets.ConnectPacket)
 	if !ok {
-		return errors.New("received msg that was not Connect")
+		log.Error("received msg that was not Connect")
+		return
 	}
 
 	log.Info("read connect from ", getAdditionalLogFields(msg.ClientIdentifier, conn)...)
@@ -342,22 +332,29 @@ func (b *Broker) handleConnection(typ int, conn net.Conn) error{
 	connack.ReturnCode = msg.Validate()
 
 	if connack.ReturnCode != packets.Accepted {
-		if err := connack.Write(conn); err != nil {
-			return errors.New(fmt.Sprintln("send connack error:%v,clientID:%v,conn:%v",err,msg.ClientIdentifier,conn))
-		}
-		return errors.New(fmt.Sprintln("connect packet validate failed with connack.ReturnCode%v",connack.ReturnCode))
+		func() {
+			defer conn.Close()
+			if err := connack.Write(conn); err != nil {
+				log.Error("send connack error", getAdditionalLogFields(msg.ClientIdentifier, conn, zap.Error(err))...)
+			}
+		}()
+		return
 	}
 
 	if typ == CLIENT && !b.CheckConnectAuth(msg.ClientIdentifier, msg.Username, string(msg.Password)) {
 		connack.ReturnCode = packets.ErrRefusedNotAuthorised
-		if err := connack.Write(conn); err != nil {
-			return errors.New(fmt.Sprintln("send connack error:%v,clientID:%v,conn:%v",err,msg.ClientIdentifier,conn))
-		}
-		return errors.New(fmt.Sprintln("connect packet CheckConnectAuth failed with connack.ReturnCode%v",connack.ReturnCode))
+		func() {
+			defer conn.Close()
+			if err := connack.Write(conn); err != nil {
+				log.Error("send connack error", getAdditionalLogFields(msg.ClientIdentifier, conn, zap.Error(err))...)
+			}
+		}()
+		return
 	}
 
 	if err := connack.Write(conn); err != nil {
-		return errors.New(fmt.Sprintln("send connack error:%v,clientID:%v,conn:%v",err,msg.ClientIdentifier,conn))
+		log.Error("send connack error", getAdditionalLogFields(msg.ClientIdentifier, conn, zap.Error(err))...)
+		return
 	}
 
 	willmsg := packets.NewControlPacket(packets.Publish).(*packets.PublishPacket)
@@ -388,7 +385,8 @@ func (b *Broker) handleConnection(typ int, conn net.Conn) error{
 	c.init()
 
 	if err := b.getSession(c, msg, connack); err != nil {
-		return errors.New(fmt.Sprintln("get session error:%v,clientID:%v,conn:%v",err,msg.ClientIdentifier,conn))
+		log.Error("get session error", getAdditionalLogFields(c.info.clientID, conn, zap.Error(err))...)
+		return
 	}
 
 	cid := c.info.clientID
@@ -428,7 +426,6 @@ func (b *Broker) handleConnection(typ int, conn net.Conn) error{
 	}
 
 	c.readLoop()
-	return nil
 }
 
 func (b *Broker) ConnectToDiscovery() {
