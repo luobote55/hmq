@@ -207,6 +207,7 @@ func (c *client) retryDelivery() {
 		c.mu.Unlock()
 		return
 	}
+	c.mu.Unlock()
 
 	// copy the to be retried elements out of the map to only hold the lock for a short time and use the new slice later to iterate
 	// through them

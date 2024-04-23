@@ -816,6 +816,7 @@ func (c *client) Close() {
 		c.conn = nil
 		c.mu.Unlock()
 	}
+	c.mu.Unlock()
 
 	if b == nil {
 		return
