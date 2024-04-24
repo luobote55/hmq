@@ -810,11 +810,10 @@ func (c *client) Close() {
 		Action:    bridge.Disconnect,
 		Timestamp: time.Now().Unix(),
 	})
-
-	if c.mu.Lock(); c.conn != nil {
+	c.mu.Lock()
+	if c.conn != nil {
 		_ = c.conn.Close()
 		c.conn = nil
-		c.mu.Unlock()
 	}
 	c.mu.Unlock()
 
